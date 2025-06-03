@@ -1,130 +1,97 @@
-/**
- * Sample React Native App
- * https://github.com/facebook/react-native
- *
- * @format
- */
-
-import React from 'react';
-import type {PropsWithChildren} from 'react';
+import React, { useEffect } from 'react';
 import {
-  ScrollView,
   StatusBar,
   StyleSheet,
-  Text,
-  useColorScheme,
   View,
+  Alert,
 } from 'react-native';
+import { Provider, useDispatch, useSelector } from 'react-redux';
+import { store, RootState } from './src/store';
+import { sagaActions } from './src/sagas/index';
+import ConsentScreen from './src/components/ConsentScreen';
+import TrackingScreen from './src/components/TrackingScreen';
+import SettingsScreen from './src/components/SettingsScreen';
+import { clearNotification } from './src/store/slices/uiSlice';
 
-import {
-  Colors,
-  DebugInstructions,
-  Header,
-  LearnMoreLinks,
-  ReloadInstructions,
-} from 'react-native/Libraries/NewAppScreen';
+// Import polyfills
+import 'react-native-get-random-values';
 
-type SectionProps = PropsWithChildren<{
-  title: string;
-}>;
+const AppContent: React.FC = () => {
+  const dispatch = useDispatch();
+  const { currentScreen, notification, error } = useSelector((state: RootState) => state.ui);
+  const { isAuthenticated } = useSelector((state: RootState) => state.auth);
 
-function Section({children, title}: SectionProps): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
-  return (
-    <View style={styles.sectionContainer}>
-      <Text
-        style={[
-          styles.sectionTitle,
-          {
-            color: isDarkMode ? Colors.white : Colors.black,
-          },
-        ]}>
-        {title}
-      </Text>
-      <Text
-        style={[
-          styles.sectionDescription,
-          {
-            color: isDarkMode ? Colors.light : Colors.dark,
-          },
-        ]}>
-        {children}
-      </Text>
-    </View>
-  );
-}
+  // Initialize session on app start
+  useEffect(() => {
+    console.log('🏁 AppContent mounted, initializing session...');
+    console.log('🔄 Dispatching saga action: initializeSession');
+    // Re-enable saga action now that Redux-Saga is working
+    dispatch(sagaActions.initializeSession());
+    console.log('✅ Saga action dispatched successfully');
+  }, [dispatch]);
 
-function App(): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
+  // Handle notifications
+  useEffect(() => {
+    if (notification) {
+      Alert.alert(
+        notification.type.charAt(0).toUpperCase() + notification.type.slice(1),
+        notification.message,
+        [{ text: 'OK', onPress: () => dispatch(clearNotification()) }]
+      );
+    }
+  }, [notification, dispatch]);
 
-  const backgroundStyle = {
-    backgroundColor: isDarkMode ? Colors.darker : Colors.lighter,
+  // Handle errors
+  useEffect(() => {
+    if (error) {
+      Alert.alert(
+        'Error',
+        error,
+        [{ text: 'OK' }]
+      );
+    }
+  }, [error]);
+
+  // Determine which screen to show
+  const renderScreen = () => {
+    // If not authenticated, always show consent screen
+    if (!isAuthenticated) {
+      return <ConsentScreen />;
+    }
+
+    // Show requested screen if authenticated
+    switch (currentScreen) {
+      case 'tracking':
+        return <TrackingScreen />;
+      case 'settings':
+        return <SettingsScreen />;
+      case 'consent':
+        return <ConsentScreen />;
+      default:
+        return <TrackingScreen />;
+    }
   };
 
-  /*
-   * To keep the template simple and small we're adding padding to prevent view
-   * from rendering under the System UI.
-   * For bigger apps the recommendation is to use `react-native-safe-area-context`:
-   * https://github.com/AppAndFlow/react-native-safe-area-context
-   *
-   * You can read more about it here:
-   * https://github.com/react-native-community/discussions-and-proposals/discussions/827
-   */
-  const safePadding = '5%';
-
   return (
-    <View style={backgroundStyle}>
-      <StatusBar
-        barStyle={isDarkMode ? 'light-content' : 'dark-content'}
-        backgroundColor={backgroundStyle.backgroundColor}
-      />
-      <ScrollView
-        style={backgroundStyle}>
-        <View style={{paddingRight: safePadding}}>
-          <Header/>
-        </View>
-        <View
-          style={{
-            backgroundColor: isDarkMode ? Colors.black : Colors.white,
-            paddingHorizontal: safePadding,
-            paddingBottom: safePadding,
-          }}>
-          <Section title="Step One">
-            Edit <Text style={styles.highlight}>App.tsx</Text> to change this
-            screen and then come back to see your edits.
-          </Section>
-          <Section title="See Your Changes">
-            <ReloadInstructions />
-          </Section>
-          <Section title="Debug">
-            <DebugInstructions />
-          </Section>
-          <Section title="Learn More">
-            Read the docs to discover what to do next:
-          </Section>
-          <LearnMoreLinks />
-        </View>
-      </ScrollView>
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+      {renderScreen()}
     </View>
   );
-}
+};
+
+const App: React.FC = () => {
+  return (
+    <Provider store={store}>
+      <AppContent />
+    </Provider>
+  );
+};
 
 const styles = StyleSheet.create({
-  sectionContainer: {
-    marginTop: 32,
-    paddingHorizontal: 24,
-  },
-  sectionTitle: {
-    fontSize: 24,
-    fontWeight: '600',
-  },
-  sectionDescription: {
-    marginTop: 8,
-    fontSize: 18,
-    fontWeight: '400',
-  },
-  highlight: {
-    fontWeight: '700',
+  container: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
   },
 });
 
