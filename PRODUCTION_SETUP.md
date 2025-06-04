@@ -143,7 +143,9 @@ This guide helps you configure BossTrack for production use with real Supabase b
 
 1. **Supabase Auth Configuration**
    - Enable email authentication in Supabase dashboard
-   - Configure redirect URLs for your app
+   - Configure redirect URLs for your app:
+     - **Development:** `exp://localhost:8081`, `http://localhost:8081`
+     - **Production:** `bosstrack://auth-callback`
    - Set up email templates (optional)
 
 2. **Update SimpleAuthService**

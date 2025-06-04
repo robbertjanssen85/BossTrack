@@ -6,26 +6,30 @@ import {
   Alert,
   Text,
   SafeAreaView,
+  TouchableOpacity,
 } from 'react-native';
 import SimpleConsentScreen from './src/components/SimpleConsentScreen';
 import SimpleTrackingScreen from './src/components/SimpleTrackingScreen';
 import SimpleSettingsScreen from './src/components/SimpleSettingsScreen';
-import { authService, AuthUser } from './src/services/AuthService';
-import { tripService, TripData } from './src/services/TripService';
+import DiagnosticScreen from './src/components/DiagnosticScreen';
+import { simpleAuthService, AuthUser } from './src/services/SimpleAuthService';
+import { simpleTripService, TripData } from './src/services/SimpleTripService';
 
 // Import polyfills
 import 'react-native-get-random-values';
+import 'react-native-url-polyfill/auto';
 
 // Simple app state interface
 interface AppState {
   user: AuthUser | null;
-  currentScreen: 'consent' | 'tracking' | 'settings';
+  currentScreen: 'consent' | 'tracking' | 'settings' | 'diagnostics';
   currentTrip: TripData | null;
   notification: {
     type: 'info' | 'success' | 'error';
     message: string;
   } | null;
   error: string | null;
+  debugTapCount: number;
 }
 
 const SimpleApp: React.FC = () => {
@@ -36,11 +40,17 @@ const SimpleApp: React.FC = () => {
     currentTrip: null,
     notification: null,
     error: null,
+    debugTapCount: 0,
   });
 
   // Initialize app on startup
   useEffect(() => {
     console.log('🏁 Simple App mounted, initializing...');
+    console.log('📱 Environment check:');
+    console.log('   - Node env:', process.env.NODE_ENV);
+    console.log('   - SUPABASE_URL exists:', !!process.env.SUPABASE_URL);
+    console.log('   - SUPABASE_ANON_KEY exists:', !!process.env.SUPABASE_ANON_KEY);
+    console.log('   - DEVELOPMENT_MODE:', process.env.DEVELOPMENT_MODE);
     initializeApp();
   }, []);
 
@@ -48,13 +58,13 @@ const SimpleApp: React.FC = () => {
   const initializeApp = async () => {
     try {
       // Try to restore existing session
-      const user = await authService.initializeSession();
+      const user = await simpleAuthService.initializeSession();
       
       if (user) {
         console.log('✅ Session restored for user:', user.id);
         
         // Check if user still has valid consent
-        if (authService.hasValidConsent()) {
+        if (simpleAuthService.hasValidConsent()) {
           setAppState(prev => ({
             ...prev,
             user,
@@ -138,7 +148,7 @@ const SimpleApp: React.FC = () => {
       }));
     },
 
-    navigateToScreen: (screen: 'consent' | 'tracking' | 'settings') => {
+    navigateToScreen: (screen: 'consent' | 'tracking' | 'settings' | 'diagnostics') => {
       console.log(`📱 Navigating to ${screen} screen`);
       setAppState(prev => ({ ...prev, currentScreen: screen }));
     },
@@ -152,7 +162,7 @@ const SimpleApp: React.FC = () => {
           type: 'van' as const
         };
         
-        const trip = await tripService.startTrip(vehicleInfo);
+        const trip = await simpleTripService.startTrip(vehicleInfo);
         
         setAppState(prev => ({
           ...prev,
@@ -175,7 +185,7 @@ const SimpleApp: React.FC = () => {
       try {
         console.log('⏹️ Stopping location tracking...');
         
-        const completedTrip = await tripService.stopTrip();
+        const completedTrip = await simpleTripService.stopTrip();
         
         setAppState(prev => ({
           ...prev,
@@ -211,7 +221,7 @@ const SimpleApp: React.FC = () => {
       try {
         console.log('📤 Getting trip history...');
         
-        const trips = await tripService.getTripHistory(10);
+        const trips = await simpleTripService.getTripHistory(10);
         
         setAppState(prev => ({
           ...prev,
@@ -240,11 +250,11 @@ const SimpleApp: React.FC = () => {
         
         // Stop any active trip
         if (appState.currentTrip) {
-          await tripService.stopTrip();
+          await simpleTripService.stopTrip();
         }
         
         // Sign out user
-        await authService.signOut();
+        await simpleAuthService.signOut();
         
         // Reset app state
         setAppState({
@@ -256,6 +266,7 @@ const SimpleApp: React.FC = () => {
             message: 'You have been logged out'
           },
           error: null,
+          debugTapCount: 0,
         });
       } catch (error) {
         console.error('❌ Logout failed:', error);
@@ -263,6 +274,25 @@ const SimpleApp: React.FC = () => {
           ...prev,
           error: `Logout failed: ${error instanceof Error ? error.message : 'Unknown error'}`
         }));
+      }
+    },
+
+    debugToggle: () => {
+      const newCount = appState.debugTapCount + 1;
+      setAppState(prev => ({
+        ...prev,
+        debugTapCount: newCount,
+        currentScreen: newCount >= 5 ? 'diagnostics' : prev.currentScreen // Switch to diagnostics screen after 5 taps
+      }));
+      
+      if (appState.debugTapCount >= 4) {
+        Alert.alert(
+          'Debug Mode',
+          'Diagnostics screen enabled.',
+          [{ 
+            text: 'OK'
+          }]
+        );
       }
     }
   };
@@ -297,6 +327,12 @@ const SimpleApp: React.FC = () => {
           );
         case 'consent':
           return <SimpleConsentScreen onAuthenticate={appActions.authenticate} />;
+        case 'diagnostics':
+          return (
+            <DiagnosticScreen 
+              onNavigateBack={() => appActions.navigateToScreen('tracking')}
+            />
+          );
         default:
           return (
             <SimpleTrackingScreen 
@@ -323,6 +359,14 @@ const SimpleApp: React.FC = () => {
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
       {renderScreen()}
+      {/* Debug touch area */}
+      <TouchableOpacity 
+        style={styles.debugArea}
+        onPress={appActions.debugToggle}
+        activeOpacity={0.7}
+      >
+        <Text style={styles.debugText}>🛠️ Debug</Text>
+      </TouchableOpacity>
     </View>
   );
 };
@@ -331,6 +375,19 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
+  },
+  debugArea: {
+    position: 'absolute',
+    bottom: 40,
+    right: 20,
+    backgroundColor: '#007bff',
+    borderRadius: 20,
+    padding: 10,
+    elevation: 5,
+  },
+  debugText: {
+    color: '#ffffff',
+    fontWeight: 'bold',
   },
 });
 

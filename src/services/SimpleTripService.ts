@@ -2,6 +2,13 @@ import { simpleSupabaseService, SimpleTrip, SimpleLocation } from './SimpleSupab
 import { simpleAuthService, AuthUser } from './SimpleAuthService';
 import { locationService } from './LocationService';
 
+console.log('🚗 SimpleTripService: locationService imported:', {
+  exists: !!locationService,
+  type: typeof locationService,
+  isNull: locationService === null,
+  isUndefined: locationService === undefined
+});
+
 export interface TripData {
   id: string;
   userId: string;
@@ -207,11 +214,30 @@ class SimpleTripService {
   private async startLocationTracking(): Promise<void> {
     try {
       console.log('📍 TripService: Starting location tracking...');
+      console.log('🔍 TripService: locationService debug:', {
+        exists: !!locationService,
+        type: typeof locationService,
+        hasRequestMethod: locationService && typeof locationService.requestLocationPermission,
+        methods: locationService ? Object.getOwnPropertyNames(Object.getPrototypeOf(locationService)) : 'null'
+      });
+
+      // Check if locationService is available
+      if (!locationService) {
+        console.error('❌ TripService: locationService is null/undefined');
+        throw new Error('Location service not available');
+      }
+
+      // Check if requestLocationPermission method exists
+      if (typeof locationService.requestLocationPermission !== 'function') {
+        console.error('❌ TripService: requestLocationPermission method missing');
+        console.error('   Available methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(locationService)));
+        throw new Error('Location permission method not available');
+      }
 
       // Request location permission first
-      const hasPermission = await locationService.requestLocationPermission();
-      if (!hasPermission) {
-        throw new Error('Location permission denied');
+      const permissionResult = await locationService.requestLocationPermission();
+      if (!permissionResult || permissionResult.status === 'denied' || permissionResult.status === 'restricted') {
+        throw new Error(`Location permission denied: ${permissionResult?.status || 'unknown'}`);
       }
 
       // Start location updates

@@ -8,6 +8,7 @@ export interface AuthUser {
   phone?: string;
   consentGiven: boolean;
   consentTimestamp?: string;
+  isAnonymous?: boolean;
 }
 
 export interface ConsentData {
@@ -24,18 +25,111 @@ class SimpleAuthService {
   private currentUser: AuthUser | null = null;
 
   /**
-   * Register a new user with consent data
+   * Register anonymously with consent data (faster for development)
+   */
+  async registerAnonymouslyWithConsent(consentData: ConsentData): Promise<AuthUser> {
+    try {
+      console.log('👤 AuthService: Registering anonymous user with consent...');
+      console.log('📋 AuthService: Received consent data:', JSON.stringify(consentData, null, 2));
+
+      // Validate consent data
+      if (!consentData || typeof consentData !== 'object') {
+        throw new Error('Invalid consent data provided');
+      }
+
+      if (!consentData.driverName || !consentData.driverName.trim()) {
+        throw new Error('Driver name is required');
+      }
+
+      if (!consentData.vehiclePlate || !consentData.vehiclePlate.trim()) {
+        throw new Error('Vehicle plate is required');
+      }
+
+      // Sign in anonymously with Supabase
+      const authResult = await simpleSupabaseService.signInAnonymously();
+      console.log('✅ AuthService: Anonymous Supabase auth successful:', authResult.user.id);
+      
+      // Create user profile with consent (anonymous users still get profiles)
+      const profile: SimpleUser = {
+        id: authResult.user.id,
+        email: consentData.email || '', // Optional for anonymous users
+        fullName: consentData.driverName,
+        companyName: consentData.companyName,
+        phone: consentData.phone,
+        consentGiven: true,
+        consentTimestamp: new Date().toISOString(),
+      };
+
+      console.log('🔨 AuthService: Built anonymous profile object:', JSON.stringify(profile, null, 2));
+
+      const createdProfile = await simpleSupabaseService.createUserProfile(profile);
+      console.log('✅ AuthService: Anonymous profile creation successful:', createdProfile.id);
+
+      // Store current user
+      this.currentUser = {
+        id: createdProfile.id,
+        email: createdProfile.email,
+        fullName: createdProfile.fullName,
+        companyName: createdProfile.companyName,
+        phone: createdProfile.phone,
+        consentGiven: createdProfile.consentGiven,
+        consentTimestamp: createdProfile.consentTimestamp,
+        isAnonymous: true,
+      };
+
+      console.log('✅ AuthService: Anonymous user registered successfully:', this.currentUser.id);
+      return this.currentUser;
+
+    } catch (error) {
+      console.error('❌ AuthService: Anonymous registration failed:', error);
+      
+      // Enhanced error handling for common issues
+      if (error instanceof Error) {
+        if (error.message.includes('User profile already exists')) {
+          throw new Error('Account already exists. Please sign in instead of creating a new account.');
+        } else if (error.message.includes('Authentication session expired')) {
+          throw new Error('Session expired during registration. Please try again.');
+        } else if (error.message.includes('Missing required field')) {
+          throw new Error('Registration data is incomplete. Please fill out all required fields.');
+        } else {
+          throw new Error(`Anonymous registration failed: ${error.message}`);
+        }
+      } else {
+        throw new Error('Anonymous registration failed: Unknown error occurred');
+      }
+    }
+  }
+
+  /**
+   * Register a new user with consent data (email/password method)
    */
   async registerWithConsent(consentData: ConsentData): Promise<AuthUser> {
     try {
       console.log('🔐 AuthService: Registering user with consent...');
+      console.log('📋 AuthService: Received consent data:', JSON.stringify(consentData, null, 2));
+
+      // Validate consent data
+      if (!consentData || typeof consentData !== 'object') {
+        throw new Error('Invalid consent data provided');
+      }
+
+      if (!consentData.driverName || !consentData.driverName.trim()) {
+        throw new Error('Driver name is required');
+      }
+
+      if (!consentData.vehiclePlate || !consentData.vehiclePlate.trim()) {
+        throw new Error('Vehicle plate is required');
+      }
 
       // Create a simple email if not provided
-      const email = consentData.email || `${Date.now()}@bosstrack.local`;
+      const email = consentData.email || `driver-${Date.now()}@bosstrack.app`;
       const password = this.generateTempPassword();
+
+      console.log('📧 AuthService: Using email:', email);
 
       // Register user with Supabase
       const authResult = await simpleSupabaseService.signUp(email, password);
+      console.log('✅ AuthService: Supabase auth successful:', authResult.user.id);
       
       // Create user profile with consent
       const profile: SimpleUser = {
@@ -48,7 +142,10 @@ class SimpleAuthService {
         consentTimestamp: new Date().toISOString(),
       };
 
+      console.log('🔨 AuthService: Built profile object:', JSON.stringify(profile, null, 2));
+
       const createdProfile = await simpleSupabaseService.createUserProfile(profile);
+      console.log('✅ AuthService: Profile creation successful:', createdProfile.id);
 
       // Store current user
       this.currentUser = {
@@ -59,6 +156,7 @@ class SimpleAuthService {
         phone: createdProfile.phone,
         consentGiven: createdProfile.consentGiven,
         consentTimestamp: createdProfile.consentTimestamp,
+        isAnonymous: false,
       };
 
       console.log('✅ AuthService: User registered successfully:', this.currentUser.id);
@@ -66,7 +164,23 @@ class SimpleAuthService {
 
     } catch (error) {
       console.error('❌ AuthService: Registration failed:', error);
-      throw new Error(`Registration failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      
+      // Enhanced error handling for common issues
+      if (error instanceof Error) {
+        if (error.message.includes('already been registered') || error.message.includes('already registered')) {
+          throw new Error(`The email address ${consentData.email || 'provided'} is already registered. Please use a different email address or sign in with your existing account.`);
+        } else if (error.message.includes('User profile already exists')) {
+          throw new Error('Account already exists. Please sign in instead of creating a new account.');
+        } else if (error.message.includes('Authentication session expired')) {
+          throw new Error('Session expired during registration. Please try again.');
+        } else if (error.message.includes('Missing required field')) {
+          throw new Error('Registration data is incomplete. Please fill out all required fields.');
+        } else {
+          throw new Error(`Registration failed: ${error.message}`);
+        }
+      } else {
+        throw new Error('Registration failed: Unknown error occurred');
+      }
     }
   }
 
@@ -201,6 +315,9 @@ class SimpleAuthService {
         return null;
       }
 
+      // Determine if user is anonymous (no email or generated email pattern)
+      const isAnonymous = !authUser.email || authUser.email === '' || authUser.email.includes('anonymous');
+
       this.currentUser = {
         id: profile.id,
         email: profile.email,
@@ -209,9 +326,10 @@ class SimpleAuthService {
         phone: profile.phone,
         consentGiven: profile.consentGiven,
         consentTimestamp: profile.consentTimestamp,
+        isAnonymous: isAnonymous,
       };
 
-      console.log('✅ AuthService: Session initialized successfully:', this.currentUser.id);
+      console.log('✅ AuthService: Session initialized successfully:', this.currentUser.id, isAnonymous ? '(anonymous)' : '(email/password)');
       return this.currentUser;
 
     } catch (error) {
